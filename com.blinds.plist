@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.blinds.automation</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <!-- CHANGE THIS PATH to where you installed sun_position.py -->
+        <string>/absolute/path/to/sun_position.py</string>
+        <string>auto</string>
+    </array>
+
+    <key>StartCalendarInterval</key>
+    <array>
+        <!-- 6:30 - 6:55 (every 5 min) -->
+        <dict><key>Hour</key><integer>6</integer><key>Minute</key><integer>30</integer></dict>
+        <dict><key>Hour</key><integer>6</integer><key>Minute</key><integer>35</integer></dict>
+        <dict><key>Hour</key><integer>6</integer><key>Minute</key><integer>40</integer></dict>
+        <dict><key>Hour</key><integer>6</integer><key>Minute</key><integer>45</integer></dict>
+        <dict><key>Hour</key><integer>6</integer><key>Minute</key><integer>50</integer></dict>
+        <dict><key>Hour</key><integer>6</integer><key>Minute</key><integer>55</integer></dict>
+        <!-- 7:00 - 7:55 -->
+        <dict><key>Hour</key><integer>7</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>7</integer><key>Minute</key><integer>5</integer></dict>
+        <dict><key>Hour</key><integer>7</integer><key>Minute</key><integer>10</integer></dict>
+        <dict><key>Hour</key><integer>7</integer><key>Minute</key><integer>15</integer></dict>
+        <dict><key>Hour</key><integer>7</integer><key>Minute</key><integer>20</integer></dict>
+        <dict><key>Hour</key><integer>7</integer><key>Minute</key><integer>25</integer></dict>
+        <dict><key>Hour</key><integer>7</integer><key>Minute</key><integer>30</integer></dict>
+        <dict><key>Hour</key><integer>7</integer><key>Minute</key><integer>35</integer></dict>
+        <dict><key>Hour</key><integer>7</integer><key>Minute</key><integer>40</integer></dict>
+        <dict><key>Hour</key><integer>7</integer><key>Minute</key><integer>45</integer></dict>
+        <dict><key>Hour</key><integer>7</integer><key>Minute</key><integer>50</integer></dict>
+        <dict><key>Hour</key><integer>7</integer><key>Minute</key><integer>55</integer></dict>
+        <!-- 8:00 - 8:55 -->
+        <dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>5</integer></dict>
+        <dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>10</integer></dict>
+        <dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>15</integer></dict>
+        <dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>20</integer></dict>
+        <dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>25</integer></dict>
+        <dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>30</integer></dict>
+        <dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>35</integer></dict>
+        <dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>40</integer></dict>
+        <dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>45</integer></dict>
+        <dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>50</integer></dict>
+        <dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>55</integer></dict>
+        <!-- 9:00 - 9:55 -->
+        <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>5</integer></dict>
+        <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>10</integer></dict>
+        <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>15</integer></dict>
+        <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>20</integer></dict>
+        <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>25</integer></dict>
+        <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>30</integer></dict>
+        <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>35</integer></dict>
+        <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>40</integer></dict>
+        <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>45</integer></dict>
+        <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>50</integer></dict>
+        <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>55</integer></dict>
+        <!-- 10:00 -->
+        <dict><key>Hour</key><integer>10</integer><key>Minute</key><integer>0</integer></dict>
+    </array>
+
+    <!-- CHANGE THESE PATHS to your desired log location -->
+    <key>StandardOutPath</key>
+    <string>/absolute/path/to/blinds.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/absolute/path/to/blinds.log</string>
+</dict>
+</plist>
