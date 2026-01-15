@@ -2,6 +2,14 @@
 
 Automatically adjust window blinds based on sun position to reduce screen glare. Uses astronomical calculations to determine when sunlight will cause glare on your monitor, then triggers a macOS Shortcut to adjust your blinds accordingly.
 
+## Features
+
+- Precise sun position calculation based on your location
+- Automatic terrain detection using GIS elevation data (hills, mountains)
+- Configurable glare thresholds and response curves
+- Integration with macOS Shortcuts for smart blind control
+- Configuration stored in standard macOS plist format
+
 ## Requirements
 
 - macOS with Shortcuts.app
@@ -10,7 +18,9 @@ Automatically adjust window blinds based on sun position to reduce screen glare.
 
 ## How It Works
 
-The system calculates the sun's position (azimuth and altitude) for your exact location and determines whether sunlight entering your window will cause glare on your monitor. Based on the glare risk, it sends one of five levels to your Shortcut:
+The system calculates the sun's position (azimuth and altitude) for your exact location and determines whether sunlight entering your window will cause glare on your monitor. It also accounts for terrain obstructions (hills, mountains) that may block the sun at low angles.
+
+Based on the glare risk, it sends one of five levels to your Shortcut:
 
 | Level | Meaning | Typical Blind Position |
 |-------|---------|----------------------|
@@ -22,27 +32,50 @@ The system calculates the sun's position (azimuth and altitude) for your exact l
 
 ## Setup
 
-### Step 1: Configure Your Location
+### Step 1: Initialize Configuration
 
-Edit `sun_position.py` and update the configuration section at the top:
-
-```python
-# Your location - REQUIRED
-LATITUDE = 40.7128      # Your latitude (positive = North, negative = South)
-LONGITUDE = -74.0060    # Your longitude (positive = East, negative = West)
-TIMEZONE = "America/New_York"  # Your timezone
-
-# Room configuration
-WINDOW_AZIMUTH = 180    # Direction your window faces (0=N, 90=E, 180=S, 270=W)
-MONITOR_FACING = 90     # Direction your monitor screen faces
-USER_FACING = 270       # Direction you face when working
+```bash
+# Create the config file with defaults
+python3 sun_position.py config-init
 ```
+
+This creates `~/Library/Preferences/com.blinds.plist` with default settings.
+
+### Step 2: Configure Your Location
+
+Edit the config file:
+
+```bash
+open -a "Property List Editor" ~/Library/Preferences/com.blinds.plist
+```
+
+Or edit with any text editor (it's XML format). Key settings:
+
+| Key | Description | Example |
+|-----|-------------|---------|
+| `latitude` | Your latitude (positive = North) | `40.7128` |
+| `longitude` | Your longitude (negative = West) | `-74.0060` |
+| `elevation` | Feet above sea level | `100` |
+| `timezone` | Your timezone | `America/New_York` |
+| `window_azimuth` | Direction window faces (0=N, 90=E, 180=S, 270=W) | `180` |
+| `monitor_facing` | Direction your monitor faces | `270` |
+| `user_facing` | Direction you face when working | `90` |
 
 **Finding your coordinates:** Use https://www.latlong.net/ or any maps app.
 
 **Finding your window azimuth:** Use a compass app on your phone while facing out the window.
 
-### Step 2: Create the macOS Shortcut
+### Step 3: Calculate Terrain Profile (Optional but Recommended)
+
+If you have hills or mountains that block the sun at low angles:
+
+```bash
+python3 sun_position.py horizon
+```
+
+This queries elevation data from the Open-Elevation API and calculates when the sun will clear terrain obstructions in each direction. The profile is saved to `horizon_profile.json` and used automatically.
+
+### Step 4: Create the macOS Shortcut
 
 1. Open **Shortcuts.app**
 2. Create a new Shortcut named exactly: `Reduce Glare`
@@ -65,7 +98,7 @@ Otherwise
 End If
 ```
 
-### Step 3: Test the Setup
+### Step 5: Test the Setup
 
 ```bash
 # See current sun position and glare analysis
@@ -78,9 +111,9 @@ python3 sun_position.py auto-dry
 python3 sun_position.py auto
 ```
 
-### Step 4: Set Up Automatic Scheduling
+### Step 6: Set Up Automatic Scheduling
 
-The included `com.blinds.plist` is a macOS LaunchAgent that runs the script every 5 minutes during morning hours (6:30 AM - 10:00 AM).
+The included `com.blinds.plist` (in the project directory) is a macOS LaunchAgent that runs the script every 5 minutes during morning hours (6:30 AM - 10:00 AM).
 
 1. Edit `com.blinds.plist` and update the paths:
    ```xml
@@ -91,17 +124,17 @@ The included `com.blinds.plist` is a macOS LaunchAgent that runs the script ever
 
 2. Copy to LaunchAgents folder:
    ```bash
-   cp com.blinds.plist ~/Library/LaunchAgents/
+   cp com.blinds.plist ~/Library/LaunchAgents/com.blinds.launchagent.plist
    ```
 
 3. Load the agent:
    ```bash
-   launchctl load ~/Library/LaunchAgents/com.blinds.plist
+   launchctl load ~/Library/LaunchAgents/com.blinds.launchagent.plist
    ```
 
 4. To stop automation:
    ```bash
-   launchctl unload ~/Library/LaunchAgents/com.blinds.plist
+   launchctl unload ~/Library/LaunchAgents/com.blinds.launchagent.plist
    ```
 
 ## CLI Commands
@@ -112,36 +145,83 @@ The included `com.blinds.plist` is a macOS LaunchAgent that runs the script ever
 | `python3 sun_position.py auto` | Run automation (executes Shortcut) |
 | `python3 sun_position.py auto-dry` | Show what would run without executing |
 | `python3 sun_position.py status` | One-line status summary |
-| `python3 sun_position.py config` | Show current configuration |
 | `python3 sun_position.py json` | Output all data as JSON |
 | `python3 sun_position.py step` | Output just the step name |
 | `python3 sun_position.py risk` | Output just the glare risk percentage |
+| `python3 sun_position.py config` | Show current configuration |
+| `python3 sun_position.py config-init` | Create config file with defaults |
+| `python3 sun_position.py horizon` | Calculate terrain profile from GIS data |
+| `python3 sun_position.py horizon-show` | Display saved terrain profile |
 | `python3 sun_position.py help` | Show help |
 
-## Customizing Glare Response
+## Configuration
 
-You can adjust how aggressively the blinds respond to glare by editing these values in `sun_position.py`:
+All settings are stored in `~/Library/Preferences/com.blinds.plist`.
 
-```python
-# Blind range
-DAY_BLIND_MIN_OPEN = 10      # Never fully close (keep some light)
-DAY_BLIND_MAX_OPEN = 100     # Fully open when no glare
+### Glare Response Settings
 
-# Glare thresholds
-GLARE_THRESHOLD_LOW = 20     # Below this: blinds stay fully open
-GLARE_THRESHOLD_HIGH = 100   # At this level: blinds at minimum
+| Key | Default | Description |
+|-----|---------|-------------|
+| `day_blind_min_open` | `10` | Minimum open % (never fully closed) |
+| `day_blind_max_open` | `100` | Maximum open % (fully retracted) |
+| `glare_threshold_low` | `20` | Below this: blinds stay fully open |
+| `glare_threshold_high` | `100` | At this level: blinds at minimum |
+| `glare_response_curve` | `1.0` | 1.0=linear, <1=gentler, >1=aggressive |
 
-# Response curve (1.0 = linear)
-# Values < 1.0 = gentler response (more light)
-# Values > 1.0 = aggressive response (closes faster)
-GLARE_RESPONSE_CURVE = 1.0
+### Manual Terrain Obstructions
+
+If the GIS data doesn't capture a specific obstruction (like a nearby building), you can add manual entries to `horizon_obstructions` in the plist:
+
+```xml
+<key>horizon_obstructions</key>
+<array>
+    <dict>
+        <key>azimuth_start</key>
+        <integer>100</integer>
+        <key>azimuth_end</key>
+        <integer>130</integer>
+        <key>min_altitude</key>
+        <integer>8</integer>
+    </dict>
+</array>
 ```
+
+This would block glare calculations when the sun is between 100°-130° azimuth and below 8° altitude.
+
+## How Glare is Calculated
+
+The glare model uses two primary factors:
+
+1. **Sun Altitude (50% weight):** Low sun (< 25°) creates the most glare as it streams in at eye/screen level. Below 10° is considered maximum risk.
+
+2. **Entry Angle (50% weight):** How directly sunlight enters through the window. Sun perpendicular to the window (0° entry angle) creates maximum glare; sun at wide angles (>60°) creates minimal direct glare.
+
+When both factors align (low sun + direct entry), a 1.3x multiplier is applied.
+
+Before calculating glare, the system checks:
+- Is the sun above the horizon?
+- Is the sun blocked by terrain (from GIS data or manual obstructions)?
+- Can the sun enter the window based on its field of view?
+
+## Files
+
+| File | Purpose |
+|------|---------|
+| `sun_position.py` | Main script |
+| `~/Library/Preferences/com.blinds.plist` | Configuration (created by config-init) |
+| `horizon_profile.json` | Cached GIS terrain data (created by horizon command) |
+| `com.blinds.plist` | LaunchAgent template for scheduling |
 
 ## Troubleshooting
 
 **Shortcut not found:**
 - Ensure the Shortcut is named exactly `Reduce Glare`
 - Test running it manually: `shortcuts run "Reduce Glare" <<< "moderate"`
+
+**Wrong glare timing:**
+- Run `python3 sun_position.py horizon` to detect terrain
+- Check if your elevation is correct (the horizon command will query it)
+- Add manual obstructions if needed for buildings/trees
 
 **Wrong glare calculations:**
 - Verify your latitude/longitude are correct
@@ -152,16 +232,6 @@ GLARE_RESPONSE_CURVE = 1.0
 - Check the log file for errors
 - Verify paths in the plist are absolute paths
 - Ensure Python 3.9+ is at `/usr/bin/python3`
-
-## How Glare is Calculated
-
-The glare model uses three factors:
-
-1. **Sun Altitude (50% weight):** Low sun (< 10°) creates maximum glare as it streams in at eye level
-2. **Entry Angle (25% weight):** How directly sunlight enters through the window
-3. **Azimuth Alignment (25% weight):** Whether the sun is positioned to shine through your window at a problematic angle
-
-These factors combine to produce a glare risk percentage (0-100%), which is then mapped to the five discrete levels.
 
 ## License
 

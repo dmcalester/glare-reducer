@@ -4,63 +4,114 @@ Sun position calculator for blinds automation.
 Calculates solar azimuth and altitude for a given location and time.
 """
 
+import json
 import math
+import plistlib
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 # =============================================================================
-# CONFIGURATION - You must edit these values for your location and setup
+# CONFIGURATION
 # =============================================================================
+# Config is stored in ~/Library/Preferences/com.blinds.plist
+# Run "python3 sun_position.py config-init" to create initial config
+# Run "python3 sun_position.py config" to view current settings
 
-# Your location - REQUIRED: Set these to your coordinates
-# Find your coordinates: https://www.latlong.net/
-# Northern latitudes are positive, Southern are negative
-# Eastern longitudes are positive, Western are negative
-LATITUDE = 40.7128  # Example: 40.7128 for New York City - UPDATE TO YOUR LOCATION
-LONGITUDE = -74.0060  # Example: -74.0060 for New York City - UPDATE TO YOUR LOCATION
-ELEVATION = 0  # feet above sea level (minor effect on calculations)
-TIMEZONE = (
-    "America/New_York"  # Your timezone, e.g., "America/New_York", "Europe/London"
-)
+CONFIG_FILE = Path.home() / "Library" / "Preferences" / "com.blinds.plist"
+HORIZON_PROFILE_FILE = Path(__file__).parent / "horizon_profile.json"
 
-# Room configuration - measure these with a compass app
-WINDOW_AZIMUTH = 90  # degrees, direction your window faces (0=N, 90=E, 180=S, 270=W)
-MONITOR_FACING = 180  # degrees, direction your monitor screen faces
-USER_FACING = 270  # degrees, direction you face when working
+# Default configuration values
+DEFAULT_CONFIG = {
+    # Location
+    "latitude": 40.7128,
+    "longitude": -74.4717,
+    "elevation": 0,  # feet above sea level
+    "timezone": "America/New_York",
+    # Room setup
+    "window_azimuth": 90,  # degrees, direction window faces (0=N, 90=E, 180=S, 270=W)
+    "monitor_facing": 180,  # degrees, direction monitor faces
+    "user_facing": 270,  # degrees, direction you face when working
+    # Manual terrain obstructions (optional, supplements GIS data)
+    # Each entry: {"azimuth_start": 90, "azimuth_end": 160, "min_altitude": 12}
+    "horizon_obstructions": [],
+    # Blind settings
+    "day_blind_min_open": 10,
+    "day_blind_max_open": 100,
+    "glare_threshold_low": 20,
+    "glare_threshold_high": 100,
+    "glare_response_curve": 1.0,
+    # Shortcuts integration
+    "blind_shortcut": "Reduce Glare",
+    "blind_steps": [
+        {"threshold": 0, "name": "severe"},
+        {"threshold": 45, "name": "high"},
+        {"threshold": 60, "name": "moderate"},
+        {"threshold": 80, "name": "low"},
+        {"threshold": 95, "name": "none"},
+    ],
+}
 
-# -----------------------------------------------------------------------------
-# BLIND SETTINGS - Adjust these to change how blinds respond to glare
-# -----------------------------------------------------------------------------
 
-# Day blind range (open percentage)
-DAY_BLIND_MIN_OPEN = 10  # Minimum open % (never fully closed, keep some light)
-DAY_BLIND_MAX_OPEN = 100  # Maximum open % (fully retracted)
+def load_config() -> dict:
+    """Load configuration from plist file, with defaults for missing values."""
+    config = DEFAULT_CONFIG.copy()
 
-# Glare thresholds
-GLARE_THRESHOLD_LOW = 20  # Below this: blinds fully open, no action needed
-GLARE_THRESHOLD_HIGH = 100  # At this level: blinds at minimum open
+    if CONFIG_FILE.exists():
+        try:
+            with open(CONFIG_FILE, "rb") as f:
+                user_config = plistlib.load(f)
+                config.update(user_config)
+        except Exception as e:
+            print(f"Warning: Could not load config from {CONFIG_FILE}: {e}")
 
-# Advanced: Curve adjustment (1.0 = linear, <1 = gentler, >1 = more aggressive)
-# Example: 0.7 = more light allowed, 1.3 = closes faster
-GLARE_RESPONSE_CURVE = 1.0
+    return config
 
-# -----------------------------------------------------------------------------
-# SHORTCUTS INTEGRATION - Maps glare levels to macOS Shortcuts
-# You must create a Shortcut named "Reduce Glare" that accepts a text input
-# The input will be one of: severe, high, moderate, low, none
-# Your Shortcut should adjust blinds accordingly (e.g., via HomeKit)
-# -----------------------------------------------------------------------------
-BLIND_SHORTCUT = "Reduce Glare"  # Single shortcut, receives level as input
-VALID_STEPS = {"severe", "high", "moderate", "low", "none"}
 
-# Step thresholds (calculated day_open % -> glare level)
-BLIND_STEPS = [
-    (0, "severe"),  # Worst glare - blinds most closed
-    (45, "high"),  # High glare
-    (60, "moderate"),  # Moderate glare
-    (80, "low"),  # Low glare
-    (95, "none"),  # No glare - blinds fully open
+def save_config(config: dict):
+    """Save configuration to plist file."""
+    CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(CONFIG_FILE, "wb") as f:
+        plistlib.dump(config, f)
+
+
+def get_config_value(key: str, default=None):
+    """Get a single config value."""
+    config = load_config()
+    return config.get(key, default)
+
+
+# Load config at module level for convenience
+_config = load_config()
+
+LATITUDE = _config["latitude"]
+LONGITUDE = _config["longitude"]
+ELEVATION = _config["elevation"]
+TIMEZONE = _config["timezone"]
+WINDOW_AZIMUTH = _config["window_azimuth"]
+MONITOR_FACING = _config["monitor_facing"]
+USER_FACING = _config["user_facing"]
+HORIZON_OBSTRUCTIONS = [
+    (o["azimuth_start"], o["azimuth_end"], o["min_altitude"])
+    for o in _config.get("horizon_obstructions", [])
 ]
+
+# -----------------------------------------------------------------------------
+# BLIND SETTINGS (loaded from config)
+# -----------------------------------------------------------------------------
+DAY_BLIND_MIN_OPEN = _config["day_blind_min_open"]
+DAY_BLIND_MAX_OPEN = _config["day_blind_max_open"]
+GLARE_THRESHOLD_LOW = _config["glare_threshold_low"]
+GLARE_THRESHOLD_HIGH = _config["glare_threshold_high"]
+GLARE_RESPONSE_CURVE = _config["glare_response_curve"]
+
+# Shortcuts integration
+BLIND_SHORTCUT = _config["blind_shortcut"]
+BLIND_STEPS = [(s["threshold"], s["name"]) for s in _config["blind_steps"]]
+VALID_STEPS = {s["name"] for s in _config["blind_steps"]}
 
 # =============================================================================
 
@@ -205,6 +256,254 @@ def angle_difference(a1: float, a2: float) -> float:
     return min(diff, 360 - diff)
 
 
+def is_sun_blocked_by_terrain(sun_az: float, sun_alt: float) -> bool:
+    """
+    Check if sun is blocked by terrain obstructions (hills, buildings).
+    First checks auto-calculated horizon profile, then falls back to manual HORIZON_OBSTRUCTIONS.
+    """
+    # Try auto-calculated horizon profile first
+    horizon = load_horizon_profile()
+    if horizon:
+        # Find the closest azimuth in the profile
+        az_key = str(round(sun_az / 5) * 5 % 360)  # Round to nearest 5°
+        if az_key in horizon:
+            horizon_alt = horizon[az_key]
+            if sun_alt < horizon_alt:
+                return True
+            return False  # Sun is above horizon profile
+
+    # Fall back to manual obstructions
+    for az_start, az_end, min_alt in HORIZON_OBSTRUCTIONS:
+        # Handle ranges that wrap around 360°
+        if az_start <= az_end:
+            in_range = az_start <= sun_az <= az_end
+        else:
+            in_range = sun_az >= az_start or sun_az <= az_end
+
+        if in_range and sun_alt < min_alt:
+            return True
+    return False
+
+
+def load_horizon_profile() -> Optional[Dict]:
+    """Load cached horizon profile if it exists."""
+    if HORIZON_PROFILE_FILE.exists():
+        try:
+            with open(HORIZON_PROFILE_FILE) as f:
+                data = json.load(f)
+                return data.get("horizon", {})
+        except (json.JSONDecodeError, IOError):
+            return None
+    return None
+
+
+def destination_point(
+    lat: float, lon: float, bearing: float, distance_km: float
+) -> Tuple[float, float]:
+    """
+    Calculate destination point given start point, bearing, and distance.
+    Uses haversine formula.
+
+    Args:
+        lat, lon: Starting coordinates in degrees
+        bearing: Bearing in degrees (0=N, 90=E, 180=S, 270=W)
+        distance_km: Distance in kilometers
+
+    Returns:
+        tuple: (latitude, longitude) of destination point
+    """
+    R = 6371  # Earth's radius in km
+
+    lat_rad = math.radians(lat)
+    lon_rad = math.radians(lon)
+    bearing_rad = math.radians(bearing)
+
+    d = distance_km / R  # Angular distance
+
+    dest_lat = math.asin(
+        math.sin(lat_rad) * math.cos(d)
+        + math.cos(lat_rad) * math.sin(d) * math.cos(bearing_rad)
+    )
+
+    dest_lon = lon_rad + math.atan2(
+        math.sin(bearing_rad) * math.sin(d) * math.cos(lat_rad),
+        math.cos(d) - math.sin(lat_rad) * math.sin(dest_lat),
+    )
+
+    return math.degrees(dest_lat), math.degrees(dest_lon)
+
+
+def query_elevations(locations: List[Tuple[float, float]]) -> List[Optional[float]]:
+    """
+    Query Open-Elevation API for multiple locations.
+
+    Args:
+        locations: List of (lat, lon) tuples
+
+    Returns:
+        List of elevations in meters (or None for failed queries)
+    """
+    if not locations:
+        return []
+
+    # Build request payload
+    payload = {
+        "locations": [{"latitude": lat, "longitude": lon} for lat, lon in locations]
+    }
+
+    try:
+        req = urllib.request.Request(
+            "https://api.open-elevation.com/api/v1/lookup",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+
+        with urllib.request.urlopen(req, timeout=30) as response:
+            data = json.load(response)
+            return [r.get("elevation") for r in data.get("results", [])]
+
+    except (urllib.error.URLError, json.JSONDecodeError, TimeoutError) as e:
+        print(f"  Error querying elevation API: {e}")
+        return [None] * len(locations)
+
+
+def calculate_horizon_profile(
+    lat: float = LATITUDE,
+    lon: float = LONGITUDE,
+    observer_elevation: float = ELEVATION,
+    azimuth_step: int = 5,
+    distances_km: List[float] = None,
+) -> Dict[str, float]:
+    """
+    Calculate horizon profile by sampling elevations in all directions.
+
+    Args:
+        lat, lon: Observer location
+        observer_elevation: Observer elevation in feet
+        azimuth_step: Degrees between azimuth samples (default 5°)
+        distances_km: Distances to sample at (default [0.1, 0.25, 0.5, 1, 2, 5, 10])
+
+    Returns:
+        Dict mapping azimuth (as string) to horizon angle in degrees
+    """
+    if distances_km is None:
+        distances_km = [0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0]
+
+    observer_elev_m = observer_elevation * 0.3048  # Convert feet to meters
+
+    print(f"Calculating horizon profile for {lat:.4f}°N, {abs(lon):.4f}°W")
+    print(f"Observer elevation: {observer_elevation} ft ({observer_elev_m:.0f} m)")
+    print(
+        f"Sampling {360 // azimuth_step} azimuths × {len(distances_km)} distances = {360 // azimuth_step * len(distances_km)} points"
+    )
+    print()
+
+    # Build all sample points
+    sample_points = []
+    point_info = []  # (azimuth, distance_km)
+
+    for azimuth in range(0, 360, azimuth_step):
+        for dist in distances_km:
+            dest_lat, dest_lon = destination_point(lat, lon, azimuth, dist)
+            sample_points.append((dest_lat, dest_lon))
+            point_info.append((azimuth, dist))
+
+    # Query elevations in batches (API may have limits)
+    print("Fetching elevation data from Open-Elevation API...")
+    batch_size = 100
+    all_elevations = []
+
+    for i in range(0, len(sample_points), batch_size):
+        batch = sample_points[i : i + batch_size]
+        print(
+            f"  Batch {i // batch_size + 1}/{(len(sample_points) + batch_size - 1) // batch_size}..."
+        )
+        elevations = query_elevations(batch)
+        all_elevations.extend(elevations)
+
+    # Calculate horizon angle for each azimuth
+    horizon = {}
+
+    for azimuth in range(0, 360, azimuth_step):
+        max_angle = 0.0
+
+        for i, (az, dist) in enumerate(point_info):
+            if az != azimuth:
+                continue
+
+            elev = all_elevations[i]
+            if elev is None:
+                continue
+
+            # Calculate angle to this point
+            elev_diff = elev - observer_elev_m
+            dist_m = dist * 1000
+
+            # Angle = atan(elevation_difference / distance)
+            angle = math.degrees(math.atan2(elev_diff, dist_m))
+            max_angle = max(max_angle, angle)
+
+        # Only store if there's meaningful obstruction (> 0.5°)
+        horizon[str(azimuth)] = round(max(0, max_angle), 1)
+
+    return horizon
+
+
+def save_horizon_profile(horizon: dict, lat: float = LATITUDE, lon: float = LONGITUDE):
+    """Save horizon profile to cache file."""
+    data = {
+        "generated": datetime.now().isoformat(),
+        "location": {"latitude": lat, "longitude": lon, "elevation_ft": ELEVATION},
+        "horizon": horizon,
+    }
+
+    with open(HORIZON_PROFILE_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+    print(f"\nSaved horizon profile to: {HORIZON_PROFILE_FILE}")
+
+
+def print_horizon_profile(horizon: dict):
+    """Print horizon profile in a readable format."""
+    print("\n" + "=" * 70)
+    print("Horizon Profile (minimum sun altitude to be visible)")
+    print("=" * 70)
+
+    # Find significant obstructions (> 2°)
+    significant = {int(k): v for k, v in horizon.items() if v > 2}
+
+    if not significant:
+        print("No significant terrain obstructions detected.")
+        print("The horizon is relatively flat in all directions.")
+    else:
+        print(f"\nSignificant obstructions (>{2}° horizon angle):\n")
+        print(f"{'Azimuth':>10} {'Direction':>10} {'Horizon':>10}")
+        print("-" * 35)
+
+        for az in sorted(significant.keys()):
+            direction = compass_direction(az)
+            angle = significant[az]
+            bar = "█" * int(angle / 2)
+            print(f"{az:>10}° {direction:>10} {angle:>9.1f}° {bar}")
+
+    # Print full profile in compact form
+    print("\n" + "-" * 70)
+    print("Full profile (azimuth: horizon angle):\n")
+
+    line = ""
+    for az in range(0, 360, 5):
+        val = horizon.get(str(az), 0)
+        line += f"{az:3d}°:{val:4.1f}  "
+        if (az + 5) % 60 == 0:
+            print(line)
+            line = ""
+    if line:
+        print(line)
+
+    print("=" * 70)
+
+
 def can_sun_enter_window(
     sun_az: float, sun_alt: float, window_az: float, window_fov: float = 140
 ) -> tuple[bool, float]:
@@ -253,6 +552,16 @@ def analyze_glare(
             "recommendation": "blinds_open",
         }
 
+    # Check if sun is blocked by terrain (hills, buildings)
+    if is_sun_blocked_by_terrain(sun_az, sun_alt):
+        return {
+            "status": "blocked_by_terrain",
+            "can_enter_window": False,
+            "entry_angle": 0,
+            "glare_risk": 0,
+            "recommendation": "blinds_open",
+        }
+
     # Check if sun can enter window
     can_enter, entry_angle = can_sun_enter_window(sun_az, sun_alt, window_az)
 
@@ -278,35 +587,22 @@ def analyze_glare(
         altitude_factor = 0.0
 
     # Factor 2: Entry angle - how directly sun enters window
-    # At 52° entry angle, sun still streams in effectively
-    # Wider than 70° = sunlight doesn't really enter
+    # At 0° = sun perpendicular to window (worst glare)
+    # At 60°+ = sun at wide angle, minimal direct entry
     if entry_angle < 60:
         entry_factor = (60 - entry_angle) / 60
     else:
         entry_factor = 0.0
 
-    # Factor 3: Azimuth alignment with problem zone
-    # Worst glare is typically when sun is in SE (morning) shining through window
-    # Adjust problem_zone_center based on your window orientation
-    problem_zone_center = (
-        WINDOW_AZIMUTH - 45
-    ) % 360  # 45° before perpendicular to window
-    azimuth_offset = angle_difference(sun_az, problem_zone_center)
-    if azimuth_offset < 30:
-        azimuth_factor = (30 - azimuth_offset) / 30
-    else:
-        azimuth_factor = 0.0
-
-    # Combined glare risk - altitude is weighted most heavily
-    # since low sun is the primary problem
+    # Combined glare risk - both factors must align for significant glare
+    # Low sun streaming directly through window = worst case
     glare_risk = 100 * (
-        0.5 * altitude_factor  # Low sun is most important
-        + 0.25 * entry_factor  # Entry angle matters
-        + 0.25 * azimuth_factor  # Azimuth alignment
+        0.5 * altitude_factor  # Low sun is critical
+        + 0.5 * entry_factor  # Direct entry angle matters equally
     )
 
-    # Boost when all factors align (multiplicative bonus)
-    if altitude_factor > 0.5 and entry_factor > 0.3 and azimuth_factor > 0.3:
+    # Boost when both factors align (multiplicative bonus)
+    if altitude_factor > 0.5 and entry_factor > 0.5:
         glare_risk = min(100, glare_risk * 1.3)
 
     glare_risk = min(100, max(0, glare_risk))
@@ -409,6 +705,7 @@ def show_morning_timeline(date: datetime = None):
 
                 status_icon = {
                     "night": "    ",
+                    "blocked_by_terrain": " \u2587\u2587 ",
                     "no_direct_sun": " -- ",
                     "low_glare": " OK ",
                     "moderate_glare": " !! ",
@@ -636,12 +933,23 @@ if __name__ == "__main__":
         elif mode == "config":
             # Show current configuration
             steps_str = ", ".join(f"{name}={thresh}%" for thresh, name in BLIND_STEPS)
+            obstructions_str = (
+                "None"
+                if not HORIZON_OBSTRUCTIONS
+                else ", ".join(f"{s}°-{e}°: {a}°" for s, e, a in HORIZON_OBSTRUCTIONS)
+            )
+            horizon_status = "Yes" if HORIZON_PROFILE_FILE.exists() else "No"
+            config_status = "Yes" if CONFIG_FILE.exists() else "No (using defaults)"
             print(f"""
 Current Configuration
 =====================
+Config file: {CONFIG_FILE}
+Config exists: {config_status}
+
 Location:
   Latitude:   {LATITUDE:.4f}°N
   Longitude:  {abs(LONGITUDE):.4f}°W
+  Elevation:  {ELEVATION} ft
   Timezone:   {TIMEZONE}
 
 Room Setup:
@@ -657,11 +965,54 @@ Day Blind Settings:
 Steps for Shortcuts:
   {steps_str}
 
-Edit these values in: sun_position.py (configuration section at top)
+Terrain:
+  Manual obstructions: {obstructions_str}
+  GIS horizon profile: {horizon_status}
+
+To edit: open {CONFIG_FILE}
+Or run: open -a "Property List Editor" "{CONFIG_FILE}"
 """)
 
+        elif mode == "config-init":
+            # Initialize config file with current/default values
+            if CONFIG_FILE.exists():
+                print(f"Config file already exists: {CONFIG_FILE}")
+                print("To reset, delete it first: rm '{CONFIG_FILE}'")
+            else:
+                save_config(DEFAULT_CONFIG)
+                print(f"Created config file: {CONFIG_FILE}")
+                print("\nYou can edit it with:")
+                print(f"  open -a 'Property List Editor' '{CONFIG_FILE}'")
+                print("  # or any text editor (it's XML format)")
+
+        elif mode == "horizon":
+            # Calculate and save horizon profile from GIS elevation data
+            print("\n" + "=" * 70)
+            print("Horizon Profile Calculator")
+            print("Uses Open-Elevation API to detect hills/mountains blocking the sun")
+            print("=" * 70 + "\n")
+
+            horizon = calculate_horizon_profile()
+            print_horizon_profile(horizon)
+            save_horizon_profile(horizon)
+
+            print(
+                "\nThe horizon profile will now be used automatically for glare calculations."
+            )
+            print("Re-run this command if you move to a new location.")
+
+        elif mode == "horizon-show":
+            # Show existing horizon profile without recalculating
+            horizon = load_horizon_profile()
+            if horizon:
+                print_horizon_profile(horizon)
+            else:
+                print(
+                    "No horizon profile found. Run 'python3 sun_position.py horizon' to generate one."
+                )
+
         elif mode == "help":
-            print("""
+            print(f"""
 Sun Position & Glare Calculator for Blinds Automation
 
 Automatic Control (recommended):
@@ -671,21 +1022,27 @@ Automatic Control (recommended):
 Manual/Debug:
   python3 sun_position.py           Full analysis (interactive)
   python3 sun_position.py status    One-line status
-  python3 sun_position.py config    Show current configuration
   python3 sun_position.py json      Full data as JSON
   python3 sun_position.py step      Step name only (severe/high/moderate/low/none)
   python3 sun_position.py day       Day blind open % (0-100)
   python3 sun_position.py risk      Glare risk % (0-100)
 
-Required Setup:
-  1. Edit configuration at top of sun_position.py:
-     - Set LATITUDE, LONGITUDE, TIMEZONE for your location
-     - Set WINDOW_AZIMUTH, MONITOR_FACING, USER_FACING for your room
-  2. Create a Shortcut named 'Reduce Glare' that accepts text input
-     - Input will be one of: severe, high, moderate, low, none
-     - Configure Shortcut to adjust your blinds accordingly
+Configuration:
+  python3 sun_position.py config      Show current configuration
+  python3 sun_position.py config-init Create config file with defaults
 
-To adjust: edit BLIND SETTINGS at top of sun_position.py
+Terrain/Horizon:
+  python3 sun_position.py horizon      Calculate horizon from GIS elevation data
+  python3 sun_position.py horizon-show Show saved horizon profile
+
+Setup:
+  1. Run 'config-init' to create the config file
+  2. Edit config: open -a "Property List Editor" "{CONFIG_FILE}"
+     - Set latitude, longitude, timezone for your location
+     - Set window_azimuth, monitor_facing, user_facing for your room
+  3. Create a Shortcut named 'Reduce Glare' that accepts text input
+     - Input will be one of: severe, high, moderate, low, none
+  4. (Optional) Run 'horizon' to auto-detect hills/mountains blocking sun
 """)
         else:
             print(f"Unknown mode: {mode}. Use 'help' for options.")
